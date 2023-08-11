@@ -1,18 +1,28 @@
+#fermaf@gmail.com
+#
+# Dada una norma del BCN.cl con el formato: url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1026260"
+# Devuelve en una  lista de diccionarios los datos de cada artículo 
+# 
+#           Está pensado para usasare como un Document Loader en Lagnchain
+#
 import xml.etree.ElementTree as ET
-
+import re
 import requests
 from collections import defaultdict
 
 
-
 # Función para recorrer los ancestros de un elemento y recolectar su información
+import re
+
 def recolectar_ancestros(elemento, padres):
     ancestros = []
     # Si el elemento tiene un padre
     if elemento in padres:
         padre = padres[elemento]
-        info_padre = {'tipoParte': padre.attrib.get('tipoParte'),
-                      'texto': padre.find("{http://www.leychile.cl/esquemas}Texto").text if padre.find("{http://www.leychile.cl/esquemas}Texto") is not None else ""}
+        texto_padre = padre.find("{http://www.leychile.cl/esquemas}Texto").text if padre.find("{http://www.leychile.cl/esquemas}Texto") is not None else ""
+        # Elimina los saltos de línea solo del interior del texto
+        texto_padre = re.sub(r'(?<=.)\n(?=.)', ' ', texto_padre)
+        info_padre = {'tipoParte': padre.attrib.get('tipoParte'), 'texto': texto_padre}
         ancestros.append(info_padre)
         # Recursivamente, recolectamos la información de los demás ancestros
         ancestros.extend(recolectar_ancestros(padre, padres))
@@ -21,8 +31,6 @@ def recolectar_ancestros(elemento, padres):
     ancestros = [ancestro for ancestro in ancestros if not (ancestro['tipoParte'] is None and ancestro['texto'] == '')]
 
     return ancestros
-
-
 
 
 
@@ -45,7 +53,7 @@ def parse_XML(contenidoXML):
                 if subelement.tag == "{http://www.leychile.cl/esquemas}NombreParte":
                     articulo['metadata']['numero'] = subelement.text
                 elif subelement.tag == "{http://www.leychile.cl/esquemas}Texto":
-                    articulo['content'] = subelement.text
+                    articulo['text'] = re.sub(r'(?<=.)\n(?=.)', ' ', subelement.text)
                 elif subelement.tag == "{http://www.leychile.cl/esquemas}TituloParte":
                     articulo['metadata']['titulo'] = subelement.text
             # Add additional keys from 'EstructuraFuncional' to metadata
@@ -102,17 +110,19 @@ def parse_XML(contenidoXML):
 
     result = defaultdict(lambda: {'count': 0, 'texts': []})
 
-
-
     return articulos,metadatos
 
 
-import requests
-#url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1186683"
-#url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1039424"
-url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1026260"
-doc_xml=requests.get(url).content.decode()
-articulos,metadatos = parse_XML(doc_xml)
 
-#print(articulos[23])
-print(metadatos)
+def BCNLoader(url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1186683&conNotas=False"):
+    #La url debe estar en el formato
+    #url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1186683&conNotas=False"
+    #url="https://www.leychile.cl/Consulta/obtxml?opt=7&idNorma=1039424&conNotas=False"
+
+    doc_xml=requests.get(url).content.decode()
+    articulos,resumen = parse_XML(doc_xml)
+
+    articulos.insert(0,{"resumen":resumen})
+    #print(articulos[0])
+    
+    return  articulos #En el elemento 0, está el Resumen de la norma
